@@ -49,24 +49,28 @@ export function ShoppingPage() {
   const load = useCallback(async () => {
     if (!user) return
     setTelegram(getSavedTelegram(user.id))
-    const weeks = await listWeeks(user.id, true)
-    const data = weeks.find((w) => w.weekStart === weekStart) ?? null
-    if (!data) {
-      const raw = await getWeek(user.id, weekStart)
-      setWeek(raw && raw.publishedDates.length > 0 ? raw : null)
-    } else {
-      setWeek(data)
-    }
-    const lists = await getShoppingLists(user.id)
-    const existing =
-      lists.find((l) =>
-        l.selectedDates.some((d) => days.includes(d)),
-      ) ?? null
-    setList(existing)
-    if (existing) {
-      setSelectedDates(existing.selectedDates.filter((d) => days.includes(d)))
-    } else {
-      setSelectedDates([])
+    try {
+      const weeksPromise = listWeeks(user.id, true)
+      const listsPromise = getShoppingLists(user.id)
+      const weeks = await weeksPromise
+      const data = weeks.find((w) => w.weekStart === weekStart) ?? null
+      if (!data) {
+        const raw = await getWeek(user.id, weekStart)
+        setWeek(raw && raw.publishedDates.length > 0 ? raw : null)
+      } else {
+        setWeek(data)
+      }
+      const lists = await listsPromise
+      const existing =
+        lists.find((l) => l.selectedDates.some((d) => days.includes(d))) ?? null
+      setList(existing)
+      if (existing) {
+        setSelectedDates(existing.selectedDates.filter((d) => days.includes(d)))
+      } else {
+        setSelectedDates([])
+      }
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Не удалось загрузить список')
     }
   }, [user, weekStart, days])
 

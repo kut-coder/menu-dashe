@@ -1,7 +1,7 @@
 import type { User } from '@supabase/supabase-js'
 import type { AppUser, ShoppingList, WeekMenu } from '../types'
 import { normalizeWeek } from './meals'
-import { isCloudConfigured, supabase } from './supabase'
+import { isCloudConfigured, supabase, withTimeout } from './supabase'
 import {
   DEMO_PASSWORD,
   localGetShopping,
@@ -61,6 +61,30 @@ function raise(error: { message: string } | null): void {
   throw new Error(message)
 }
 
+function cacheProfile(profile: AppUser) {
+  localStorage.setItem(`menu-app:profile:${profile.id}`, JSON.stringify(profile))
+}
+
+function cachedProfile(id: string): AppUser | null {
+  try {
+    const raw = localStorage.getItem(`menu-app:profile:${id}`)
+    return raw ? (profileFromRow(JSON.parse(raw) as ProfileRow)) : null
+  } catch {
+    return null
+  }
+}
+
+function sessionProfile(user: User): AppUser {
+  const email = user.email ?? ''
+  const admin = email.toLowerCase().startsWith('admin@')
+  return {
+    id: user.id,
+    email,
+    name: admin ? 'Админ' : 'Даша',
+    role: admin ? 'admin' : 'user',
+  }
+}
+
 function profileFromRow(row: ProfileRow): AppUser {
   return {
     id: row.id,
@@ -78,7 +102,11 @@ async function ensureProfile(user: User): Promise<AppUser> {
     .eq('id', user.id)
     .maybeSingle()
   raise(existing.error)
-  if (existing.data) return profileFromRow(existing.data as ProfileRow)
+  if (existing.data) {
+    const profile = profileFromRow(existing.data as ProfileRow)
+    cacheProfile(profile)
+    return profile
+  }
 
   const email = user.email ?? ''
   const created = await db
@@ -92,7 +120,9 @@ async function ensureProfile(user: User): Promise<AppUser> {
     .select('id, name, email, role')
     .single()
   raise(created.error)
-  return profileFromRow(created.data as ProfileRow)
+  const profile = profileFromRow(created.data as ProfileRow)
+  cacheProfile(profile)
+  return profile
 }
 
 function weekFromRow(row: WeekRow): WeekMenu {
@@ -140,8 +170,14 @@ export async function logout(): Promise<void> {
     localLogout()
     return
   }
-  const { error } = await supabase.auth.signOut()
-  raise(error)
+  const projectUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+  if (projectUrl) {
+    const ref = new URL(projectUrl).hostname.split('.')[0]
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith(`sb-${ref}-`)) localStorage.removeItem(key)
+    }
+  }
+  void supabase.auth.signOut({ scope: 'local' })
 }
 
 export function subscribeAuth(cb: (user: AppUser | null) => void): () => void {
@@ -150,38 +186,42 @@ export function subscribeAuth(cb: (user: AppUser | null) => void): () => void {
     return () => undefined
   }
 
-  let cancelled = false
+  let generation = 0
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    if (cancelled) return
+    const gen = ++generation
     if (!session?.user) {
       cb(null)
       return
     }
     const authUser = session.user
+    cb(cachedProfile(authUser.id) ?? sessionProfile(authUser))
     setTimeout(() => {
-      if (cancelled) return
-      void ensureProfile(authUser)
+      if (gen !== generation) return
+      void withTimeout(ensureProfile(authUser), 6000)
         .then((profile) => {
-          if (!cancelled) cb(profile)
+          if (gen === generation) cb(profile)
         })
         .catch(() => {
-          if (!cancelled) cb(null)
+          // Уже показали профиль из памяти телефона.
         })
     }, 0)
   })
 
   return () => {
-    cancelled = true
+    generation += 1
     data.subscription.unsubscribe()
   }
 }
 
+function cloudQuery<T>(query: PromiseLike<T>): Promise<T> {
+  return withTimeout(Promise.resolve(query))
+}
+
 export async function listUsers(): Promise<AppUser[]> {
   if (!isCloudConfigured || !supabase) return localListUsers()
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, name, email, role')
-    .order('email')
+  const { data, error } = await cloudQuery(
+    supabase.from('profiles').select('id, name, email, role').order('email'),
+  )
   raise(error)
   return (data as ProfileRow[]).map(profileFromRow)
 }
@@ -194,14 +234,16 @@ export async function getWeek(
     const local = localGetWeek(userId, weekStart)
     return local ? normalizeWeek(local) : null
   }
-  const { data, error } = await supabase
-    .from('weeks')
-    .select(
-      'user_id, week_start, week_end, status, published_at, published_dates, days, updated_at',
-    )
-    .eq('user_id', userId)
-    .eq('week_start', weekStart)
-    .maybeSingle()
+  const { data, error } = await cloudQuery(
+    supabase
+      .from('weeks')
+      .select(
+        'user_id, week_start, week_end, status, published_at, published_dates, days, updated_at',
+      )
+      .eq('user_id', userId)
+      .eq('week_start', weekStart)
+      .maybeSingle(),
+  )
   raise(error)
   return data ? weekFromRow(data as WeekRow) : null
 }
@@ -220,7 +262,7 @@ export async function listWeeks(
     )
     .eq('user_id', userId)
   if (publishedOnly) query = query.eq('status', 'published')
-  const { data, error } = await query.order('week_start')
+  const { data, error } = await cloudQuery(query.order('week_start'))
   raise(error)
   return (data as WeekRow[]).map(weekFromRow)
 }
@@ -234,9 +276,11 @@ export async function saveWeek(userId: string, week: WeekMenu): Promise<void> {
     localSaveWeek(userId, payload)
     return
   }
-  const { error } = await supabase
-    .from('weeks')
-    .upsert(weekToRow(userId, payload), { onConflict: 'user_id,week_start' })
+  const { error } = await cloudQuery(
+    supabase
+      .from('weeks')
+      .upsert(weekToRow(userId, payload), { onConflict: 'user_id,week_start' }),
+  )
   raise(error)
 }
 
@@ -285,10 +329,12 @@ export async function unpublishDates(
 
 export async function getShoppingLists(userId: string): Promise<ShoppingList[]> {
   if (!isCloudConfigured || !supabase) return localGetShopping(userId)
-  const { data, error } = await supabase
-    .from('shopping_lists')
-    .select('id, selected_dates, items, updated_at')
-    .eq('user_id', userId)
+  const { data, error } = await cloudQuery(
+    supabase
+      .from('shopping_lists')
+      .select('id, selected_dates, items, updated_at')
+      .eq('user_id', userId),
+  )
   raise(error)
   return (data as ShoppingRow[]).map((row) => ({
     id: row.id,
@@ -308,33 +354,32 @@ export async function saveShoppingLists(
   }
   const db = supabase
   if (lists.length) {
-    const { error } = await db.from('shopping_lists').upsert(
-      lists.map((list) => ({
-        id: list.id,
-        user_id: userId,
-        selected_dates: list.selectedDates,
-        items: list.items,
-        updated_at: list.updatedAt,
-      })),
-      { onConflict: 'user_id,id' },
+    const { error } = await cloudQuery(
+      db.from('shopping_lists').upsert(
+        lists.map((list) => ({
+          id: list.id,
+          user_id: userId,
+          selected_dates: list.selectedDates,
+          items: list.items,
+          updated_at: list.updatedAt,
+        })),
+        { onConflict: 'user_id,id' },
+      ),
     )
     raise(error)
   }
-  const { data, error } = await db
-    .from('shopping_lists')
-    .select('id')
-    .eq('user_id', userId)
+  const { data, error } = await cloudQuery(
+    db.from('shopping_lists').select('id').eq('user_id', userId),
+  )
   raise(error)
   const keep = new Set(lists.map((list) => list.id))
   const stale = (data ?? [])
     .map((row) => row.id as string)
     .filter((id) => !keep.has(id))
   if (!stale.length) return
-  const removed = await db
-    .from('shopping_lists')
-    .delete()
-    .eq('user_id', userId)
-    .in('id', stale)
+  const removed = await cloudQuery(
+    db.from('shopping_lists').delete().eq('user_id', userId).in('id', stale),
+  )
   raise(removed.error)
 }
 

@@ -1,4 +1,4 @@
-import { isCloudConfigured, supabase } from './supabase'
+import { isCloudConfigured, supabase, withTimeout } from './supabase'
 
 export interface WaterProfile {
   weightKg: number
@@ -103,31 +103,60 @@ export function dayWaterNormMl(
   }
 }
 
+function hasWaterData(profile: WaterProfile): boolean {
+  return (
+    profile.weightKg > 0 ||
+    Object.keys(profile.byDate).length > 0 ||
+    Object.keys(profile.trainingDays).length > 0
+  )
+}
+
+function preferNewer(local: WaterProfile, remote: WaterProfile): WaterProfile {
+  if (!hasWaterData(remote)) return hasWaterData(local) ? local : remote
+  if (!hasWaterData(local)) return remote
+  return (local.updatedAt || '') >= (remote.updatedAt || '') ? local : remote
+}
+
+async function pushWater(userId: string, profile: WaterProfile): Promise<void> {
+  if (!supabase) return
+  const { error } = await withTimeout(
+    Promise.resolve(
+      supabase.from('water_profiles').upsert(toRow(userId, profile), {
+        onConflict: 'user_id',
+      }),
+    ),
+    6000,
+  )
+  if (error) throw new Error(error.message)
+}
+
 export async function loadWaterProfile(userId: string): Promise<WaterProfile> {
-  if (!isCloudConfigured || !supabase) return readLocal(userId)
+  const local = readLocal(userId)
+  if (!isCloudConfigured || !supabase) return local
   try {
-    const { data, error } = await supabase
-      .from('water_profiles')
-      .select('weight_kg, by_date, training_days, updated_at')
-      .eq('user_id', userId)
-      .maybeSingle()
-    if (error) return readLocal(userId)
-    if (!data) {
-      const local = readLocal(userId)
-      if (
-        local.weightKg ||
-        Object.keys(local.byDate).length ||
-        Object.keys(local.trainingDays).length
-      ) {
-        await supabase.from('water_profiles').upsert(toRow(userId, local))
-      }
+    const { data, error } = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('water_profiles')
+          .select('weight_kg, by_date, training_days, updated_at')
+          .eq('user_id', userId)
+          .maybeSingle(),
+      ),
+      6000,
+    )
+    if (error || !data) {
+      if (hasWaterData(local)) void pushWater(userId, local).catch(() => undefined)
       return local
     }
-    const profile = fromRow(data as WaterRow)
-    writeLocal(userId, profile)
-    return profile
+    const chosen = preferNewer(local, fromRow(data as WaterRow))
+    if (chosen === local && hasWaterData(local)) {
+      void pushWater(userId, local).catch(() => undefined)
+    } else {
+      writeLocal(userId, chosen)
+    }
+    return chosen
   } catch {
-    return readLocal(userId)
+    return local
   }
 }
 
@@ -138,10 +167,7 @@ async function saveProfile(
   const next = { ...profile, updatedAt: new Date().toISOString() }
   writeLocal(userId, next)
   if (isCloudConfigured && supabase) {
-    const { error } = await supabase
-      .from('water_profiles')
-      .upsert(toRow(userId, next), { onConflict: 'user_id' })
-    if (error) throw new Error(error.message)
+    await pushWater(userId, next)
   }
   return next
 }
@@ -208,6 +234,7 @@ export function subscribeWaterProfile(
 
   const client = supabase
   let cancelled = false
+  onChange(readLocal(userId))
   void loadWaterProfile(userId).then((profile) => {
     if (!cancelled) onChange(profile)
   })
@@ -228,7 +255,7 @@ export function subscribeWaterProfile(
           onChange(readLocal(userId))
           return
         }
-        const profile = fromRow(row)
+        const profile = preferNewer(readLocal(userId), fromRow(row))
         writeLocal(userId, profile)
         onChange(profile)
       },

@@ -147,8 +147,10 @@ a {
 .page {
   padding: 8px 14px 24px;
   min-width: 0;
+  min-height: 0;
   width: 100%;
   overflow-x: clip;
+  overflow-y: auto;
 }
 
 .tabbar {

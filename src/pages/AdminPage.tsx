@@ -55,14 +55,18 @@ export function AdminPage() {
   const clients = users.filter((u) => u.role === 'user')
 
   const load = useCallback(async () => {
-    const all = await listUsers()
-    setUsers(all)
-    const clientsOnly = all.filter((u) => u.role === 'user')
-    const id = userId || clientsOnly[0]?.id || ''
-    if (!userId && id) setUserId(id)
-    if (!id) return
-    const existing = await getWeek(id, weekStart)
-    setWeek(existing ?? blankWeek(weekStart))
+    try {
+      const all = await listUsers()
+      setUsers(all)
+      const clientsOnly = all.filter((u) => u.role === 'user')
+      const id = userId || clientsOnly[0]?.id || ''
+      if (!userId && id) setUserId(id)
+      if (!id) return
+      const existing = await getWeek(id, weekStart)
+      setWeek(existing ?? blankWeek(weekStart))
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'Не удалось загрузить меню')
+    }
   }, [userId, weekStart])
 
   useEffect(() => {

@@ -314,7 +314,10 @@ export function SettingsPage() {
       <button
         type="button"
         className="btn danger btn-block"
-        onClick={() => void logout()}
+        onClick={() => {
+          logout()
+          navigate('/login', { replace: true })
+        }}
       >
         Выйти
       </button>

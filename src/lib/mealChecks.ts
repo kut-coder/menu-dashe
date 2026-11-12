@@ -1,4 +1,4 @@
-import { isCloudConfigured, supabase } from './supabase'
+import { isCloudConfigured, supabase, withTimeout } from './supabase'
 
 export type ChecksMap = Record<string, boolean>
 
@@ -34,20 +34,26 @@ export function itemCheckKey(
 export async function loadMealChecks(userId: string): Promise<ChecksMap> {
   if (!isCloudConfigured || !supabase) return readLocal(userId)
   try {
-    const { data, error } = await supabase
-      .from('meal_checks')
-      .select('checks')
-      .eq('user_id', userId)
-      .maybeSingle()
+    const { data, error } = await withTimeout(
+      Promise.resolve(
+        supabase.from('meal_checks').select('checks').eq('user_id', userId).maybeSingle(),
+      ),
+      6000,
+    )
     if (error) return readLocal(userId)
     if (!data) {
       const local = readLocal(userId)
       if (Object.keys(local).length) {
-        await supabase.from('meal_checks').upsert({
-          user_id: userId,
-          checks: local,
-          updated_at: new Date().toISOString(),
-        })
+        void withTimeout(
+          Promise.resolve(
+            supabase.from('meal_checks').upsert({
+              user_id: userId,
+              checks: local,
+              updated_at: new Date().toISOString(),
+            }),
+          ),
+          6000,
+        ).catch(() => undefined)
       }
       return local
     }
@@ -71,13 +77,18 @@ export async function setMealCheck(
   writeLocal(userId, map)
 
   if (isCloudConfigured && supabase) {
-    const { error } = await supabase.from('meal_checks').upsert(
-      {
-        user_id: userId,
-        checks: map,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
+    const { error } = await withTimeout(
+      Promise.resolve(
+        supabase.from('meal_checks').upsert(
+          {
+            user_id: userId,
+            checks: map,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' },
+        ),
+      ),
+      6000,
     )
     if (error) throw new Error(error.message)
   }
@@ -96,6 +107,7 @@ export function subscribeMealChecks(
 
   const client = supabase
   let cancelled = false
+  onChange(readLocal(userId))
   void loadMealChecks(userId).then((checks) => {
     if (!cancelled) onChange(checks)
   })

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getWeek, listWeeks } from '../lib/api'
+import { getWeek } from '../lib/api'
 import {
   FIRST_WEEK_START,
   formatDayLong,
@@ -41,7 +41,6 @@ export function MenuPage() {
     if (!user) return
     if (!silent) setLoading(true)
     try {
-      await listWeeks(user.id, true)
       const data = await getWeek(user.id, weekStart)
       if (data && data.publishedDates.length > 0) {
         setWeek(data)

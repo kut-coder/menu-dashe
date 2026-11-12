@@ -14,3 +14,22 @@ export const supabase: SupabaseClient | null = isCloudConfigured
       },
     })
   : null
+
+export function withTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('Сервер долго не отвечает. Данные на телефоне сохранены.')),
+      ms,
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
