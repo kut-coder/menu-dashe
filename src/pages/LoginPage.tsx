@@ -30,7 +30,13 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <img src="/icon-192.png" alt="" className="login-icon" width={88} height={88} />
+        <img
+          src={`${import.meta.env.BASE_URL}icon-192.png`}
+          alt=""
+          className="login-icon"
+          width={88}
+          height={88}
+        />
         <h1>Меню</h1>
         <p className="muted">Войдите один раз — сессия сохранится на устройстве.</p>
         <form onSubmit={onSubmit} className="stack">

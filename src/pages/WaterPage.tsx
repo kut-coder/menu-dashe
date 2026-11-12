@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -38,13 +38,27 @@ export function WaterPage() {
     trainingDays: {},
     updatedAt: '',
   })
+  const profileRef = useRef(profile)
   const [custom, setCustom] = useState('')
 
   const days = useMemo(() => weekDates(weekStart), [weekStart])
 
   useEffect(() => {
     if (!user) return
-    return subscribeWaterProfile(user.id, setProfile)
+    return subscribeWaterProfile(user.id, (next) => {
+      const current = profileRef.current
+      const incomingEmpty =
+        next.weightKg <= 0 &&
+        Object.keys(next.byDate).length === 0 &&
+        Object.keys(next.trainingDays).length === 0
+      const currentHasData =
+        current.weightKg > 0 ||
+        Object.keys(current.byDate).length > 0 ||
+        Object.keys(current.trainingDays).length > 0
+      if (incomingEmpty && currentHasData) return
+      profileRef.current = next
+      setProfile(next)
+    })
   }, [user])
 
   useEffect(() => {
@@ -73,8 +87,10 @@ export function WaterPage() {
     })
   }, [days, profile])
 
-  async function apply(next: Promise<WaterProfile>) {
-    setProfile(await next)
+  async function apply(nextPromise: Promise<WaterProfile>) {
+    const next = await nextPromise
+    profileRef.current = next
+    setProfile(next)
   }
 
   if (!user) return null

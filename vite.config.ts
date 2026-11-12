@@ -17,7 +17,7 @@ export default defineConfig({
         background_color: '#000000',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
+        start_url: process.env.VITE_BASE || '/',
         lang: 'ru',
         icons: [
           {

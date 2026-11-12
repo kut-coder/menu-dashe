@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../hooks/useTheme'
@@ -42,12 +42,15 @@ export function SettingsPage() {
   })
   const [weightInput, setWeightInput] = useState('')
   const [weightMsg, setWeightMsg] = useState('')
+  const weightSavedAt = useRef('')
 
   const days = useMemo(() => weekDates(weekStart), [weekStart])
 
   useEffect(() => {
     if (!user || user.role === 'admin') return
     return subscribeWaterProfile(user.id, (profile) => {
+      if (weightSavedAt.current && profile.weightKg <= 0) return
+      if (profile.weightKg > 0) weightSavedAt.current = profile.updatedAt
       setWater(profile)
       setWeightInput(profile.weightKg ? String(profile.weightKg) : '')
     })
@@ -101,15 +104,31 @@ export function SettingsPage() {
 
   async function saveWeight() {
     if (!user) return
-    const kg = Number(weightInput.replace(',', '.'))
+    const kg = Number(weightInput.replace(',', '.').trim())
     if (!kg || kg <= 0) {
       setWeightMsg('Укажите вес в кг.')
       return
     }
-    const next = await setWeightKg(user.id, kg, water)
-    setWater(next)
-    const norm = waterNormMl(next.weightKg)
-    setWeightMsg(`Сохранено. Норма воды: ${norm.min}–${norm.max} мл/день.`)
+    const optimistic: WaterProfile = {
+      ...water,
+      weightKg: Math.round(kg * 10) / 10,
+      updatedAt: new Date().toISOString(),
+    }
+    weightSavedAt.current = optimistic.updatedAt
+    setWater(optimistic)
+    setWeightInput(String(optimistic.weightKg))
+    try {
+      const next = await setWeightKg(user.id, kg, water)
+      setWater(next)
+      setWeightInput(String(next.weightKg))
+      const norm = waterNormMl(next.weightKg)
+      setWeightMsg(`Сохранено. Норма воды: ${norm.min}–${norm.max} мл/день.`)
+    } catch (e) {
+      const norm = waterNormMl(optimistic.weightKg)
+      setWeightMsg(
+        `Норма на этом телефоне: ${norm.min}–${norm.max} мл. В общую базу не записалось: ${e instanceof Error ? e.message : 'ошибка'}.`,
+      )
+    }
   }
 
   async function copyDay() {
