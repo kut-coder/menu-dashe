@@ -5,7 +5,25 @@
     <link rel="icon" type="image/png" href="%BASE_URL%icon-192.png" />
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#84BD00" />
+    <meta name="theme-color" content="#e8f5c8" />
+    <script>
+      (function () {
+        var colors = {
+          yellow: '#ffe99a',
+          salad: '#e8f5c8',
+          sky: '#d7efff',
+          pink: '#ffd9e6',
+          lilac: '#e8dcff',
+          white: '#ffffff',
+          black: '#1a1a1a',
+        }
+        var saved = localStorage.getItem('menu-app:theme') || 'salad'
+        if (!colors[saved]) saved = 'salad'
+        document.documentElement.setAttribute('data-theme', saved)
+        var bar = document.querySelector('meta[name="theme-color"]')
+        if (bar) bar.setAttribute('content', colors[saved])
+      })()
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="description" content="Меню на неделю и список покупок" />

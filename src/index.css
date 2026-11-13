@@ -70,10 +70,15 @@ html[data-theme='black'] {
   --chip: rgba(255, 255, 255, 0.08);
   --chip-active: #84bd00;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
 }
 
 html,
