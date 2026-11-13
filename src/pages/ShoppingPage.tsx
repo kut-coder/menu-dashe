@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getShoppingLists, getWeek, listWeeks, saveShoppingLists } from '../lib/api'
+import {
+  getShoppingLists,
+  getWeek,
+  listWeeks,
+  peekShopping,
+  peekWeek,
+  saveShoppingLists,
+} from '../lib/api'
 import {
   FIRST_WEEK_START,
   formatDayShort,
@@ -33,9 +40,19 @@ import {
 export function ShoppingPage() {
   const { user } = useAuth()
   const [weekStart, setWeekStart] = useState(FIRST_WEEK_START)
-  const [week, setWeek] = useState<WeekMenu | null>(null)
+  const [week, setWeek] = useState<WeekMenu | null>(() =>
+    user ? peekWeek(user.id, FIRST_WEEK_START) : null,
+  )
   const [selectedDates, setSelectedDates] = useState<string[]>([])
-  const [list, setList] = useState<ShoppingList | null>(null)
+  const [list, setList] = useState<ShoppingList | null>(() => {
+    if (!user) return null
+    const daysNow = weekDates(FIRST_WEEK_START)
+    return (
+      peekShopping(user.id).find((item) =>
+        item.selectedDates.some((date) => daysNow.includes(date)),
+      ) ?? null
+    )
+  })
   const [sortByStores, setSortByStores] = useState(true)
   const [message, setMessage] = useState('')
   const [telegram, setTelegram] = useState('')
@@ -49,6 +66,16 @@ export function ShoppingPage() {
   const load = useCallback(async () => {
     if (!user) return
     setTelegram(getSavedTelegram(user.id))
+    const cachedWeek = peekWeek(user.id, weekStart)
+    if (cachedWeek) setWeek(cachedWeek)
+    const cachedList =
+      peekShopping(user.id).find((item) =>
+        item.selectedDates.some((date) => days.includes(date)),
+      ) ?? null
+    if (cachedList) {
+      setList(cachedList)
+      setSelectedDates(cachedList.selectedDates.filter((date) => days.includes(date)))
+    }
     try {
       const weeksPromise = listWeeks(user.id, true)
       const listsPromise = getShoppingLists(user.id)

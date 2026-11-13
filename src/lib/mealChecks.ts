@@ -77,7 +77,7 @@ export async function setMealCheck(
   writeLocal(userId, map)
 
   if (isCloudConfigured && supabase) {
-    const { error } = await withTimeout(
+    void withTimeout(
       Promise.resolve(
         supabase.from('meal_checks').upsert(
           {
@@ -89,8 +89,7 @@ export async function setMealCheck(
         ),
       ),
       6000,
-    )
-    if (error) throw new Error(error.message)
+    ).catch(() => undefined)
   }
   return map
 }

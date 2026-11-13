@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getWeek } from '../lib/api'
+import { getWeek, peekWeek } from '../lib/api'
 import {
   FIRST_WEEK_START,
   formatDayLong,
@@ -25,8 +25,12 @@ export function MenuPage() {
   const { user } = useAuth()
   const [weekStart, setWeekStart] = useState(FIRST_WEEK_START)
   const [selectedDay, setSelectedDay] = useState(FIRST_WEEK_START)
-  const [week, setWeek] = useState<WeekMenu | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [week, setWeek] = useState<WeekMenu | null>(() =>
+    user ? peekWeek(user.id, FIRST_WEEK_START) : null,
+  )
+  const [loading, setLoading] = useState(
+    () => !user || !peekWeek(user.id, FIRST_WEEK_START),
+  )
   const [message, setMessage] = useState('')
   const [checks, setChecks] = useState<Record<string, boolean>>({})
 
@@ -39,7 +43,14 @@ export function MenuPage() {
 
   const refresh = useCallback(async (silent = false) => {
     if (!user) return
-    if (!silent) setLoading(true)
+    const cached = peekWeek(user.id, weekStart)
+    if (cached) {
+      setWeek(cached)
+      setLoading(false)
+      setMessage('')
+    } else if (!silent) {
+      setLoading(true)
+    }
     try {
       const data = await getWeek(user.id, weekStart)
       if (data && data.publishedDates.length > 0) {
@@ -50,7 +61,9 @@ export function MenuPage() {
         setMessage('На эту неделю меню ещё не отправлено.')
       }
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Ошибка загрузки')
+      if (!cached) {
+        setMessage(e instanceof Error ? e.message : 'Ошибка загрузки')
+      }
     } finally {
       setLoading(false)
     }

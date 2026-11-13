@@ -137,6 +137,42 @@ function weekFromRow(row: WeekRow): WeekMenu {
   })
 }
 
+function weekCacheKey(userId: string, weekStart: string): string {
+  return `menu-app:week-cache:${userId}:${weekStart}`
+}
+
+export function peekWeek(userId: string, weekStart: string): WeekMenu | null {
+  try {
+    const raw = localStorage.getItem(weekCacheKey(userId, weekStart))
+    if (!raw) return null
+    const week = normalizeWeek(JSON.parse(raw) as WeekMenu)
+    return week.publishedDates.length > 0 ? week : null
+  } catch {
+    return null
+  }
+}
+
+function rememberWeek(userId: string, week: WeekMenu) {
+  localStorage.setItem(weekCacheKey(userId, week.weekStart), JSON.stringify(week))
+}
+
+function shopCacheKey(userId: string): string {
+  return `menu-app:shop-cache:${userId}`
+}
+
+export function peekShopping(userId: string): ShoppingList[] {
+  try {
+    const raw = localStorage.getItem(shopCacheKey(userId))
+    return raw ? (JSON.parse(raw) as ShoppingList[]) : []
+  } catch {
+    return []
+  }
+}
+
+function rememberShopping(userId: string, lists: ShoppingList[]) {
+  localStorage.setItem(shopCacheKey(userId), JSON.stringify(lists))
+}
+
 function weekToRow(userId: string, week: WeekMenu) {
   return {
     user_id: userId,
@@ -162,7 +198,10 @@ export async function login(email: string, password: string): Promise<AppUser> {
   })
   raise(error)
   if (!data.user) throw new Error('Неверный email или пароль')
-  return ensureProfile(data.user)
+  const quick = cachedProfile(data.user.id) ?? sessionProfile(data.user)
+  cacheProfile(quick)
+  void ensureProfile(data.user).catch(() => undefined)
+  return quick
 }
 
 export async function logout(): Promise<void> {
@@ -245,7 +284,10 @@ export async function getWeek(
       .maybeSingle(),
   )
   raise(error)
-  return data ? weekFromRow(data as WeekRow) : null
+  if (!data) return null
+  const week = weekFromRow(data as WeekRow)
+  rememberWeek(userId, week)
+  return week
 }
 
 export async function listWeeks(
@@ -264,7 +306,9 @@ export async function listWeeks(
   if (publishedOnly) query = query.eq('status', 'published')
   const { data, error } = await cloudQuery(query.order('week_start'))
   raise(error)
-  return (data as WeekRow[]).map(weekFromRow)
+  const weeks = (data as WeekRow[]).map(weekFromRow)
+  for (const week of weeks) rememberWeek(userId, week)
+  return weeks
 }
 
 export async function saveWeek(userId: string, week: WeekMenu): Promise<void> {
@@ -336,12 +380,14 @@ export async function getShoppingLists(userId: string): Promise<ShoppingList[]> 
       .eq('user_id', userId),
   )
   raise(error)
-  return (data as ShoppingRow[]).map((row) => ({
+  const lists = (data as ShoppingRow[]).map((row) => ({
     id: row.id,
     selectedDates: row.selected_dates ?? [],
     items: row.items ?? [],
     updatedAt: row.updated_at,
   }))
+  rememberShopping(userId, lists)
+  return lists
 }
 
 export async function saveShoppingLists(

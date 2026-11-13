@@ -167,7 +167,7 @@ async function saveProfile(
   const next = { ...profile, updatedAt: new Date().toISOString() }
   writeLocal(userId, next)
   if (isCloudConfigured && supabase) {
-    await pushWater(userId, next)
+    void pushWater(userId, next).catch(() => undefined)
   }
   return next
 }
