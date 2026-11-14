@@ -2,6 +2,7 @@ import type { DayMeals, MealKey, ProductItem, Unit, WeekMenu } from '../types'
 import { MEAL_ORDER } from '../types'
 import { emptyDay } from './meals'
 import { weekDates, weekEndOf } from './dates'
+import { readMenuFile } from './readMenuFile'
 
 const DAY_ALIASES = [
   'понедельник',
@@ -165,19 +166,12 @@ export function textToWeekDraft(text: string, weekStart: string): WeekMenu {
   }
 }
 
-export async function recognizeMenuImage(
+export async function recognizeMenuFile(
   file: File,
   weekStart: string,
   onProgress?: (p: number) => void,
-): Promise<{ text: string; draft: WeekMenu }> {
-  const Tesseract = await import('tesseract.js')
-  const result = await Tesseract.recognize(file, 'rus+eng', {
-    logger: (m) => {
-      if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-        onProgress?.(Math.round(m.progress * 100))
-      }
-    },
-  })
-  const text = result.data.text
-  return { text, draft: textToWeekDraft(text, weekStart) }
+): Promise<{ text: string; draft: WeekMenu; note: string }> {
+  const { text, note } = await readMenuFile(file, onProgress)
+  onProgress?.(100)
+  return { text, draft: textToWeekDraft(text, weekStart), note }
 }

@@ -6,7 +6,7 @@ import {
   saveWeek,
   unpublishDates,
 } from '../lib/api'
-import { recognizeMenuImage } from '../lib/ocr'
+import { recognizeMenuFile } from '../lib/ocr'
 import {
   currentWeekStart,
   formatDayLong,
@@ -276,9 +276,9 @@ export function AdminPage() {
     if (!file) return
     const seq = ++loadSeq.current
     setOcrProgress(0)
-    setStatus('Распознавание скрина…')
+    setStatus('Чтение файла…')
     try {
-      const { draft, text } = await recognizeMenuImage(file, weekStart, setOcrProgress)
+      const { draft, text, note } = await recognizeMenuFile(file, weekStart, setOcrProgress)
       if (seq !== loadSeq.current) return
       const filled = Object.values(draft.days).reduce(
         (acc, day) => acc + MEAL_ORDER.reduce((sum, key) => sum + day[key].lines.length, 0),
@@ -291,10 +291,11 @@ export function AdminPage() {
         publishedAt: prev.publishedAt,
       }))
       setSelectedDay(weekStart)
+      const tail = note ? ` ${note}` : ''
       setStatus(
         filled > 0
-          ? `Со скрина разобрано строк: ${filled}. Проверьте и сохраните черновик.`
-          : `Текст со скрина прочитан (${text.length} симв.), но продукты с весом не найдены. Нужны строки вида «Геркулес 40 г».`,
+          ? `Из файла разобрано строк: ${filled}. Проверьте и сохраните черновик.${tail}`
+          : `Текст из файла прочитан (${text.length} симв.), но продукты с весом не найдены. Нужны строки вида «Геркулес 40 г».${tail}`,
       )
     } catch (e) {
       if (seq !== loadSeq.current) return
@@ -381,10 +382,13 @@ export function AdminPage() {
       </div>
 
       <section className="panel stack">
-        <h2>Загрузка скрина</h2>
+        <h2>Загрузка меню</h2>
+        <p className="muted small">
+          Скрин, фото, PDF или Word (.docx). Текст в документе читается точнее, чем фото.
+        </p>
         <input
           type="file"
-          accept="image/*"
+          accept="image/*,.pdf,application/pdf,.doc,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={(e) => void onOcrFile(e.target.files?.[0] ?? null)}
         />
         {ocrProgress !== null && (
