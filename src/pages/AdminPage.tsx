@@ -8,11 +8,12 @@ import {
 } from '../lib/api'
 import { recognizeMenuImage } from '../lib/ocr'
 import {
-  FIRST_WEEK_START,
+  currentWeekStart,
   formatDayLong,
   formatDayShort,
   formatWeekRange,
   shiftWeek,
+  todayKey,
   weekDates,
   weekEndOf,
 } from '../lib/dates'
@@ -44,9 +45,9 @@ function blankWeek(weekStart: string): WeekMenu {
 export function AdminPage() {
   const [users, setUsers] = useState<AppUser[]>([])
   const [userId, setUserId] = useState('')
-  const [weekStart, setWeekStart] = useState(FIRST_WEEK_START)
-  const [selectedDay, setSelectedDay] = useState(FIRST_WEEK_START)
-  const [week, setWeek] = useState<WeekMenu>(() => blankWeek(FIRST_WEEK_START))
+  const [weekStart, setWeekStart] = useState(() => currentWeekStart())
+  const [selectedDay, setSelectedDay] = useState(() => todayKey())
+  const [week, setWeek] = useState<WeekMenu>(() => blankWeek(currentWeekStart()))
   const [status, setStatus] = useState('')
   const [ocrProgress, setOcrProgress] = useState<number | null>(null)
   const [sendDates, setSendDates] = useState<string[]>([])

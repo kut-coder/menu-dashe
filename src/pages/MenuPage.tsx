@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getWeek, peekWeek } from '../lib/api'
 import {
-  FIRST_WEEK_START,
+  currentWeekStart,
   formatDayLong,
   formatDayShort,
   formatWeekRange,
   shiftWeek,
+  todayKey,
   weekDates,
 } from '../lib/dates'
 import {
@@ -23,13 +24,13 @@ const FORCE_KEY = 'menu:force-refresh'
 
 export function MenuPage() {
   const { user } = useAuth()
-  const [weekStart, setWeekStart] = useState(FIRST_WEEK_START)
-  const [selectedDay, setSelectedDay] = useState(FIRST_WEEK_START)
+  const [weekStart, setWeekStart] = useState(() => currentWeekStart())
+  const [selectedDay, setSelectedDay] = useState(() => todayKey())
   const [week, setWeek] = useState<WeekMenu | null>(() =>
-    user ? peekWeek(user.id, FIRST_WEEK_START) : null,
+    user ? peekWeek(user.id, currentWeekStart()) : null,
   )
   const [loading, setLoading] = useState(
-    () => !user || !peekWeek(user.id, FIRST_WEEK_START),
+    () => !user || !peekWeek(user.id, currentWeekStart()),
   )
   const [message, setMessage] = useState('')
   const [checks, setChecks] = useState<Record<string, boolean>>({})

@@ -9,7 +9,7 @@ import {
   saveShoppingLists,
 } from '../lib/api'
 import {
-  FIRST_WEEK_START,
+  currentWeekStart,
   formatDayShort,
   formatWeekRange,
   shiftWeek,
@@ -39,14 +39,14 @@ import {
 
 export function ShoppingPage() {
   const { user } = useAuth()
-  const [weekStart, setWeekStart] = useState(FIRST_WEEK_START)
+  const [weekStart, setWeekStart] = useState(() => currentWeekStart())
   const [week, setWeek] = useState<WeekMenu | null>(() =>
-    user ? peekWeek(user.id, FIRST_WEEK_START) : null,
+    user ? peekWeek(user.id, currentWeekStart()) : null,
   )
   const [selectedDates, setSelectedDates] = useState<string[]>([])
   const [list, setList] = useState<ShoppingList | null>(() => {
     if (!user) return null
-    const daysNow = weekDates(FIRST_WEEK_START)
+    const daysNow = weekDates(currentWeekStart())
     return (
       peekShopping(user.id).find((item) =>
         item.selectedDates.some((date) => daysNow.includes(date)),

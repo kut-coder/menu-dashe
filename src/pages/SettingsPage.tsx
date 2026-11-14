@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../hooks/useTheme'
 import { getWeek, isCloudConfigured, saveWeek } from '../lib/api'
 import {
-  FIRST_WEEK_START,
+  currentWeekStart,
   formatDayShort,
   formatWeekRange,
   shiftWeek,
@@ -28,7 +28,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false)
   const navigate = useNavigate()
 
-  const [weekStart, setWeekStart] = useState(FIRST_WEEK_START)
+  const [weekStart, setWeekStart] = useState(() => currentWeekStart())
   const [week, setWeek] = useState<WeekMenu | null>(null)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')

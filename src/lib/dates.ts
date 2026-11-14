@@ -9,6 +9,14 @@ import { ru } from 'date-fns/locale'
 
 export const FIRST_WEEK_START = '2026-11-02'
 
+export function todayKey(now = new Date()): string {
+  return toDateKey(now)
+}
+
+export function currentWeekStart(now = new Date()): string {
+  return toDateKey(weekStartOf(now))
+}
+
 export function toDateKey(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
