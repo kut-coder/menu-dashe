@@ -30,10 +30,44 @@ async function textFromImage(
   return result.data.text
 }
 
+function decodeXml(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+}
+
+function textFromDocumentXml(xml: string): string {
+  return xml
+    .split(/<w:p[\s>/]/)
+    .slice(1)
+    .map((chunk) => {
+      const body = chunk.split('</w:p>')[0] ?? chunk
+      return [...body.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)]
+        .map((match) => decodeXml(match[1]))
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim()
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
 async function textFromDocx(data: ArrayBuffer): Promise<string> {
-  const mammoth = await import('mammoth')
-  const result = await mammoth.extractRawText({ arrayBuffer: data })
-  return result.value.trim()
+  const { default: JSZip } = await import('jszip')
+  let zip: Awaited<ReturnType<typeof JSZip.loadAsync>>
+  try {
+    zip = await JSZip.loadAsync(data)
+  } catch {
+    throw new Error('Файл Word повреждён или это старый формат .doc. Сохраните его как .docx.')
+  }
+  const entry = zip.file('word/document.xml')
+  if (!entry) {
+    throw new Error('В файле Word нет текста. Сохраните документ как .docx.')
+  }
+  return textFromDocumentXml(await entry.async('string'))
 }
 
 function linesFromPdfItems(items: unknown[]): string {
@@ -120,16 +154,30 @@ async function textFromPdf(
   }
 }
 
+function looksLikeDocx(name: string, type: string): boolean {
+  const ext = extension(name)
+  return (
+    ext === '.docx' ||
+    ext === '.doc' ||
+    type.includes('wordprocessingml') ||
+    type === 'application/msword'
+  )
+}
+
 export async function readMenuFile(
   file: File,
   onProgress?: (p: number) => void,
 ): Promise<MenuFileText> {
   const ext = extension(file.name)
   const type = file.type
+  const data = await file.arrayBuffer()
 
-  if (ext === '.doc' && type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-    const data = await file.arrayBuffer()
-    if (!isZip(data)) {
+  if (ext === '.pdf' || type === 'application/pdf' || isPdf(data)) {
+    return textFromPdf(data, onProgress)
+  }
+
+  if (looksLikeDocx(file.name, type) || isZip(data)) {
+    if ((ext === '.doc' || type === 'application/msword') && !isZip(data)) {
       throw new Error('Старый Word .doc не читается. Сохраните файл как .docx или PDF.')
     }
     onProgress?.(40)
@@ -138,24 +186,15 @@ export async function readMenuFile(
     return { text, note: '' }
   }
 
-  if (
-    ext === '.docx' ||
-    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  ) {
-    onProgress?.(40)
-    const text = await textFromDocx(await file.arrayBuffer())
-    if (!text) throw new Error('В документе Word не найден текст.')
-    return { text, note: '' }
-  }
-
-  if (ext === '.pdf' || type === 'application/pdf') {
-    return textFromPdf(await file.arrayBuffer(), onProgress)
-  }
-
   if (type.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(ext)) {
     const text = await textFromImage(file, onProgress)
     return { text, note: '' }
   }
 
   throw new Error('Нужен скрин, фото, PDF или Word .docx.')
+}
+
+function isPdf(data: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(data.slice(0, 4))
+  return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46
 }

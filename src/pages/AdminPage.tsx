@@ -28,6 +28,16 @@ import {
   type WeekMenu,
 } from '../types'
 
+function errorText(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return 'Не удалось прочитать файл.'
+}
+
 function blankWeek(weekStart: string): WeekMenu {
   const days: WeekMenu['days'] = {}
   for (const d of weekDates(weekStart)) days[d] = emptyDay()
@@ -299,7 +309,7 @@ export function AdminPage() {
       )
     } catch (e) {
       if (seq !== loadSeq.current) return
-      setStatus(e instanceof Error ? e.message : 'Ошибка OCR')
+      setStatus(errorText(e))
     } finally {
       if (seq === loadSeq.current) setOcrProgress(null)
     }
