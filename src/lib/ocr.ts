@@ -28,11 +28,20 @@ function parseUnit(raw: string): Unit {
   return 'г'
 }
 
+const UNIT_TAIL = String.raw`(?:гр|г|мл|шт)\.?`
+const PRODUCT_RE = new RegExp(
+  String.raw`([\p{L}][\p{L}\s\-.]{0,60}?)\s*[–—-]?\s*(\d+(?:[.,]\d+)?)\s*(${UNIT_TAIL})(?![\p{L}\p{N}])`,
+  'giu',
+)
+const AMOUNT_ONLY_RE = new RegExp(
+  String.raw`^\d+(?:[.,]\d+)?\s*${UNIT_TAIL}$`,
+  'iu',
+)
+
 /** Извлекает продукты вида «Название 100гр» / «Название 2 шт». */
 export function parseProductsFromText(text: string): ProductItem[] {
   const items: ProductItem[] = []
-  const re =
-    /([А-Яа-яA-Za-zЁё][А-Яа-яA-Za-zЁё\s\-.]{1,40}?)\s*[–—-]?\s*(\d+[.,]?\d*)\s*(гр|г|мл|шт)\b/gi
+  const re = new RegExp(PRODUCT_RE.source, 'giu')
   let match: RegExpExecArray | null
   while ((match = re.exec(text)) !== null) {
     const name = match[1].trim().replace(/\s+/g, ' ')
@@ -61,10 +70,26 @@ export function textToWeekDraft(text: string, weekStart: string): WeekMenu {
   const days: Record<string, DayMeals> = {}
   for (const d of dates) days[d] = emptyDay()
 
-  const lines = text
+  const rawLines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
+  const lines: string[] = []
+  for (let i = 0; i < rawLines.length; i++) {
+    const next = rawLines[i + 1]
+    if (
+      next &&
+      AMOUNT_ONLY_RE.test(next) &&
+      parseProductsFromText(rawLines[i]).length === 0 &&
+      !detectMeal(rawLines[i]) &&
+      DAY_ALIASES.every((d) => !rawLines[i].toLowerCase().includes(d))
+    ) {
+      lines.push(`${rawLines[i]} ${next}`)
+      i += 1
+      continue
+    }
+    lines.push(rawLines[i])
+  }
 
   let dayIndex = 0
   let meal: MealKey = 'breakfast'
@@ -87,12 +112,21 @@ export function textToWeekDraft(text: string, weekStart: string): WeekMenu {
       } else {
         meal = mealHit
       }
+      const rest = line
+        .replace(/завтрак|перекус|обед|ужин/gi, '')
+        .replace(/^[\s:—\-–.]+/, '')
+        .trim()
+      if (rest && days[dates[dayIndex]] && !days[dates[dayIndex]][meal].title) {
+        days[dates[dayIndex]][meal].title = rest
+      }
       continue
     }
 
+    const slot = days[dates[dayIndex]]?.[meal]
+    if (!slot) continue
     const products = parseProductsFromText(line)
-    if (products.length && days[dates[dayIndex]]) {
-      days[dates[dayIndex]][meal].lines.push(
+    if (products.length) {
+      slot.lines.push(
         ...products.map((p) => ({
           type: 'product' as const,
           name: p.name,
@@ -100,7 +134,10 @@ export function textToWeekDraft(text: string, weekStart: string): WeekMenu {
           unit: p.unit,
         })),
       )
+      continue
     }
+    if (!slot.title) slot.title = line
+    else slot.lines.push({ type: 'comment', text: line })
   }
 
   const total = Object.values(days).reduce(

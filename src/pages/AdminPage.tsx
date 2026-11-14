@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getWeek,
   listUsers,
@@ -50,21 +50,26 @@ export function AdminPage() {
   const [status, setStatus] = useState('')
   const [ocrProgress, setOcrProgress] = useState<number | null>(null)
   const [sendDates, setSendDates] = useState<string[]>([])
+  const loadSeq = useRef(0)
 
   const days = useMemo(() => weekDates(weekStart), [weekStart])
   const clients = users.filter((u) => u.role === 'user')
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
     try {
       const all = await listUsers()
+      if (seq !== loadSeq.current) return
       setUsers(all)
       const clientsOnly = all.filter((u) => u.role === 'user')
       const id = userId || clientsOnly[0]?.id || ''
       if (!userId && id) setUserId(id)
       if (!id) return
       const existing = await getWeek(id, weekStart)
+      if (seq !== loadSeq.current) return
       setWeek(existing ?? blankWeek(weekStart))
     } catch (e) {
+      if (seq !== loadSeq.current) return
       setStatus(e instanceof Error ? e.message : 'Не удалось загрузить меню')
     }
   }, [userId, weekStart])
@@ -268,23 +273,33 @@ export function AdminPage() {
 
   async function onOcrFile(file: File | null) {
     if (!file) return
+    const seq = ++loadSeq.current
     setOcrProgress(0)
     setStatus('Распознавание скрина…')
     try {
       const { draft, text } = await recognizeMenuImage(file, weekStart, setOcrProgress)
+      if (seq !== loadSeq.current) return
+      const filled = Object.values(draft.days).reduce(
+        (acc, day) => acc + MEAL_ORDER.reduce((sum, key) => sum + day[key].lines.length, 0),
+        0,
+      )
       setWeek((prev) => ({
         ...draft,
         publishedDates: prev.publishedDates ?? [],
         status: (prev.publishedDates?.length ?? 0) > 0 ? 'published' : 'draft',
         publishedAt: prev.publishedAt,
       }))
+      setSelectedDay(weekStart)
       setStatus(
-        `Черновик из скрина загружен. Можно править строки, добавлять продукт/комментарий и менять порядок. (OCR: ${text.length} симв.)`,
+        filled > 0
+          ? `Со скрина разобрано строк: ${filled}. Проверьте и сохраните черновик.`
+          : `Текст со скрина прочитан (${text.length} симв.), но продукты с весом не найдены. Нужны строки вида «Геркулес 40 г».`,
       )
     } catch (e) {
+      if (seq !== loadSeq.current) return
       setStatus(e instanceof Error ? e.message : 'Ошибка OCR')
     } finally {
-      setOcrProgress(null)
+      if (seq === loadSeq.current) setOcrProgress(null)
     }
   }
 
