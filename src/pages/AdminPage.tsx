@@ -148,6 +148,51 @@ export function AdminPage() {
     })
   }
 
+  function dayHasContent(day: WeekMenu['days'][string] | undefined): boolean {
+    if (!day) return false
+    return MEAL_ORDER.some((meal) => {
+      const slot = day[meal]
+      return Boolean(slot?.title?.trim()) || (slot?.lines.length ?? 0) > 0
+    })
+  }
+
+  function copyDayToNext() {
+    const index = days.indexOf(selectedDay)
+    const nextDay = days[index + 1]
+    if (!nextDay) {
+      setStatus('Это последний день недели. Копировать можно только на следующий день этой недели.')
+      return
+    }
+    const source = week.days[selectedDay] ?? emptyDay()
+    if (!dayHasContent(source)) {
+      setStatus('В этом дне пока нет блюд — копировать нечего.')
+      return
+    }
+    const target = week.days[nextDay]
+    if (
+      dayHasContent(target) &&
+      !window.confirm(
+        `В ${formatDayShort(nextDay)} уже есть меню. Заменить его копией ${formatDayShort(selectedDay)}?`,
+      )
+    ) {
+      return
+    }
+    setWeek((prev) => ({
+      ...prev,
+      days: {
+        ...prev.days,
+        [nextDay]: structuredClone(source),
+      },
+    }))
+    setSelectedDay(nextDay)
+    const alreadySent = week.publishedDates?.includes(nextDay)
+    setStatus(
+      alreadySent
+        ? `Скопировано на ${formatDayShort(nextDay)}. День уже у пользователя — сохраните и отправьте его снова, чтобы заменить.`
+        : `Скопировано на ${formatDayShort(nextDay)}. Сохраните черновик, чтобы не потерять.`,
+    )
+  }
+
   async function saveDraft() {
     if (!userId) return
     const payload: WeekMenu = {
@@ -307,7 +352,17 @@ export function AdminPage() {
         ))}
       </div>
 
-      <h3 className="day-title">{formatDayLong(selectedDay)}</h3>
+      <div className="row wrap day-copy-row">
+        <h3 className="day-title">{formatDayLong(selectedDay)}</h3>
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={days.indexOf(selectedDay) === days.length - 1}
+          onClick={copyDayToNext}
+        >
+          Скопировать на следующий день
+        </button>
+      </div>
 
       <section className="panel stack">
         <h2>Загрузка скрина</h2>

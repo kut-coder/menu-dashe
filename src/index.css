@@ -378,6 +378,11 @@ a {
   cursor: default;
 }
 
+.day-copy-row {
+  align-items: center;
+  justify-content: space-between;
+}
+
 .day-title {
   margin: 0;
   font-size: clamp(1rem, 4.2vw, 1.15rem);
