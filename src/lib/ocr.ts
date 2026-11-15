@@ -14,6 +14,17 @@ const DAY_ALIASES = [
   'воскресенье',
 ]
 
+const DAY_SHORT = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
+
+function detectDay(line: string): number {
+  const lower = line.toLowerCase()
+  const full = DAY_ALIASES.findIndex((day) => lower.includes(day))
+  if (full >= 0) return full
+  return DAY_SHORT.findIndex((day) =>
+    new RegExp(`(?:^|[^а-яё])${day}(?:[^а-яё]|$)`, 'i').test(lower),
+  )
+}
+
 const MEAL_ALIASES: Array<{ key: MealKey; patterns: string[] }> = [
   { key: 'breakfast', patterns: ['завтрак'] },
   { key: 'snack1', patterns: ['перекус'] },
@@ -83,7 +94,7 @@ export function textToWeekDraft(text: string, weekStart: string): WeekMenu {
       AMOUNT_ONLY_RE.test(next) &&
       parseProductsFromText(rawLines[i]).length === 0 &&
       !detectMeal(rawLines[i]) &&
-      DAY_ALIASES.every((d) => !rawLines[i].toLowerCase().includes(d))
+      detectDay(rawLines[i]) < 0
     ) {
       lines.push(`${rawLines[i]} ${next}`)
       i += 1
@@ -97,8 +108,7 @@ export function textToWeekDraft(text: string, weekStart: string): WeekMenu {
   let snackCount = 0
 
   for (const line of lines) {
-    const lower = line.toLowerCase()
-    const dayHit = DAY_ALIASES.findIndex((d) => lower.includes(d))
+    const dayHit = detectDay(line)
     if (dayHit >= 0) {
       dayIndex = dayHit
       snackCount = 0

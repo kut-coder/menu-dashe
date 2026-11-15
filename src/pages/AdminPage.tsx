@@ -62,6 +62,7 @@ export function AdminPage() {
   const [ocrProgress, setOcrProgress] = useState<number | null>(null)
   const [sendDates, setSendDates] = useState<string[]>([])
   const loadSeq = useRef(0)
+  const keepImportedWeek = useRef(false)
 
   const days = useMemo(() => weekDates(weekStart), [weekStart])
   const clients = users.filter((u) => u.role === 'user')
@@ -77,7 +78,7 @@ export function AdminPage() {
       if (!userId && id) setUserId(id)
       if (!id) return
       const existing = await getWeek(id, weekStart)
-      if (seq !== loadSeq.current) return
+      if (seq !== loadSeq.current || keepImportedWeek.current) return
       setWeek(existing ?? blankWeek(weekStart))
     } catch (e) {
       if (seq !== loadSeq.current) return
@@ -290,21 +291,31 @@ export function AdminPage() {
     try {
       const { draft, text, note } = await recognizeMenuFile(file, weekStart, setOcrProgress)
       if (seq !== loadSeq.current) return
-      const filled = Object.values(draft.days).reduce(
-        (acc, day) => acc + MEAL_ORDER.reduce((sum, key) => sum + day[key].lines.length, 0),
-        0,
-      )
+      const counts = days.map((date) => ({
+        date,
+        count: MEAL_ORDER.reduce(
+          (sum, key) => sum + (draft.days[date]?.[key].lines.length ?? 0),
+          0,
+        ),
+      }))
+      const filled = counts.reduce((sum, item) => sum + item.count, 0)
+      const firstFilled = counts.find((item) => item.count > 0)?.date ?? weekStart
+      keepImportedWeek.current = true
       setWeek((prev) => ({
         ...draft,
         publishedDates: prev.publishedDates ?? [],
         status: (prev.publishedDates?.length ?? 0) > 0 ? 'published' : 'draft',
         publishedAt: prev.publishedAt,
       }))
-      setSelectedDay(weekStart)
+      setSelectedDay(firstFilled)
+      const where = counts
+        .filter((item) => item.count > 0)
+        .map((item) => `${formatDayShort(item.date)} — ${item.count}`)
+        .join(', ')
       const tail = note ? ` ${note}` : ''
       setStatus(
         filled > 0
-          ? `Из файла разобрано строк: ${filled}. Проверьте и сохраните черновик.${tail}`
+          ? `Из файла разобрано строк: ${filled}. ${where}. Проверьте и сохраните черновик.${tail}`
           : `Текст из файла прочитан (${text.length} симв.), но продукты с весом не найдены. Нужны строки вида «Геркулес 40 г».${tail}`,
       )
     } catch (e) {
@@ -323,7 +334,10 @@ export function AdminPage() {
         <h2>Пользователь</h2>
         <select
           value={userId}
-          onChange={(e) => setUserId(e.target.value)}
+          onChange={(e) => {
+            keepImportedWeek.current = false
+            setUserId(e.target.value)
+          }}
         >
           {clients.map((u) => (
             <option key={u.id} value={u.id}>
@@ -337,7 +351,10 @@ export function AdminPage() {
         <button
           type="button"
           className="btn ghost"
-          onClick={() => setWeekStart((w) => shiftWeek(w, -1))}
+          onClick={() => {
+            keepImportedWeek.current = false
+            setWeekStart((w) => shiftWeek(w, -1))
+          }}
         >
           ←
         </button>
@@ -348,7 +365,10 @@ export function AdminPage() {
         <button
           type="button"
           className="btn ghost"
-          onClick={() => setWeekStart((w) => shiftWeek(w, 1))}
+          onClick={() => {
+            keepImportedWeek.current = false
+            setWeekStart((w) => shiftWeek(w, 1))
+          }}
         >
           →
         </button>
