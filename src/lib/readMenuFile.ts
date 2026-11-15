@@ -1,3 +1,5 @@
+import type { PDFPageProxy } from 'pdfjs-dist'
+
 const MAX_PDF_PAGES = 8
 
 export interface MenuFileText {
@@ -103,15 +105,7 @@ function linesFromPdfItems(items: unknown[]): string {
     .join('\n')
 }
 
-async function ocrPdfPage(
-  page: {
-    getViewport: (params: { scale: number }) => { width: number; height: number }
-    render: (params: {
-      canvas: HTMLCanvasElement
-      viewport: { width: number; height: number }
-    }) => { promise: Promise<unknown> }
-  },
-): Promise<string> {
+async function ocrPdfPage(page: PDFPageProxy): Promise<string> {
   const base = page.getViewport({ scale: 1 })
   const scale = Math.min(2, 1400 / Math.max(base.width, 1))
   const viewport = page.getViewport({ scale })
