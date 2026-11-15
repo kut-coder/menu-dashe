@@ -2,9 +2,14 @@ import type { PDFPageProxy } from 'pdfjs-dist'
 
 const MAX_PDF_PAGES = 8
 
+export type MenuPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'table'; rows: string[][] }
+
 export interface MenuFileText {
   text: string
   note: string
+  parts: MenuPart[]
 }
 
 function extension(name: string): string {
@@ -32,6 +37,11 @@ async function textFromImage(
   return result.data.text
 }
 
+function asTextPart(text: string): MenuPart[] {
+  const trimmed = text.trim()
+  return trimmed ? [{ kind: 'text', text: trimmed }] : []
+}
+
 function decodeXml(value: string): string {
   return value
     .replace(/&amp;/g, '&')
@@ -41,9 +51,9 @@ function decodeXml(value: string): string {
     .replace(/&apos;/g, "'")
 }
 
-function textFromDocumentXml(xml: string): string {
-  return xml
-    .split(/<w:p[\s>/]/)
+function paragraphTexts(fragment: string): string[] {
+  return fragment
+    .split(/<w:p(?:\s[^>]*)?>/)
     .slice(1)
     .map((chunk) => {
       const body = chunk.split('</w:p>')[0] ?? chunk
@@ -54,10 +64,37 @@ function textFromDocumentXml(xml: string): string {
         .trim()
     })
     .filter(Boolean)
-    .join('\n')
 }
 
-async function textFromDocx(data: ArrayBuffer): Promise<string> {
+/** Таблицу Word сохраняем по ячейкам, чтобы дни в шапке не склеивались в один день. */
+export function partsFromDocumentXml(xml: string): MenuPart[] {
+  const parts: MenuPart[] = []
+  const chunks = xml.split(/<w:tbl(?:\s[^>]*)?>/)
+  const before = paragraphTexts(chunks[0] ?? '')
+  if (before.length) parts.push({ kind: 'text', text: before.join('\n') })
+  for (const chunk of chunks.slice(1)) {
+    const end = chunk.indexOf('</w:tbl>')
+    const tableXml = end >= 0 ? chunk.slice(0, end) : chunk
+    const after = end >= 0 ? chunk.slice(end + '</w:tbl>'.length) : ''
+    const rows = tableXml
+      .split(/<w:tr(?:\s[^>]*)?>/)
+      .slice(1)
+      .map((rowXml) => {
+        const rowBody = rowXml.split('</w:tr>')[0] ?? rowXml
+        return rowBody.split(/<w:tc(?:\s[^>]*)?>/).slice(1).map((cellXml) => {
+          const cellBody = cellXml.split('</w:tc>')[0] ?? cellXml
+          return paragraphTexts(cellBody).join('\n')
+        })
+      })
+      .filter((row) => row.length > 0)
+    if (rows.length) parts.push({ kind: 'table', rows })
+    const tail = paragraphTexts(after)
+    if (tail.length) parts.push({ kind: 'text', text: tail.join('\n') })
+  }
+  return parts
+}
+
+async function textFromDocx(data: ArrayBuffer): Promise<MenuPart[]> {
   const { default: JSZip } = await import('jszip')
   let zip: Awaited<ReturnType<typeof JSZip.loadAsync>>
   try {
@@ -69,7 +106,7 @@ async function textFromDocx(data: ArrayBuffer): Promise<string> {
   if (!entry) {
     throw new Error('В файле Word нет текста. Сохраните документ как .docx.')
   }
-  return textFromDocumentXml(await entry.async('string'))
+  return partsFromDocumentXml(await entry.async('string'))
 }
 
 function linesFromPdfItems(items: unknown[]): string {
@@ -142,9 +179,11 @@ async function textFromPdf(
     if (text) parts.push(text)
     page.cleanup()
   }
+  const text = parts.join('\n')
   return {
-    text: parts.join('\n'),
+    text,
     note: total > count ? `Прочитаны первые ${count} страниц из ${total}.` : '',
+    parts: asTextPart(text),
   }
 }
 
@@ -175,14 +214,18 @@ export async function readMenuFile(
       throw new Error('Старый Word .doc не читается. Сохраните файл как .docx или PDF.')
     }
     onProgress?.(40)
-    const text = await textFromDocx(data)
+    const parts = await textFromDocx(data)
+    const text = parts
+      .flatMap((part) => (part.kind === 'text' ? [part.text] : part.rows.flat()))
+      .join('\n')
+      .trim()
     if (!text) throw new Error('В документе Word не найден текст.')
-    return { text, note: '' }
+    return { text, note: '', parts }
   }
 
   if (type.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(ext)) {
     const text = await textFromImage(file, onProgress)
-    return { text, note: '' }
+    return { text, note: '', parts: asTextPart(text) }
   }
 
   throw new Error('Нужен скрин, фото, PDF или Word .docx.')
