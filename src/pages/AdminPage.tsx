@@ -28,14 +28,14 @@ import {
   type WeekMenu,
 } from '../types'
 
-function errorText(error: unknown): string {
+function errorText(error: unknown, fallback = 'Не удалось прочитать файл.'): string {
   if (error instanceof Error && error.message) return error.message
   if (typeof error === 'string' && error.trim()) return error
   if (error && typeof error === 'object' && 'message' in error) {
     const message = (error as { message?: unknown }).message
     if (typeof message === 'string' && message.trim()) return message
   }
-  return 'Не удалось прочитать файл.'
+  return fallback
 }
 
 function blankWeek(weekStart: string): WeekMenu {
@@ -61,6 +61,7 @@ export function AdminPage() {
   const [status, setStatus] = useState('')
   const [ocrProgress, setOcrProgress] = useState<number | null>(null)
   const [sendDates, setSendDates] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
   const loadSeq = useRef(0)
   const keepImportedWeek = useRef(false)
 
@@ -210,9 +211,8 @@ export function AdminPage() {
     )
   }
 
-  async function saveDraft() {
-    if (!userId) return
-    const payload: WeekMenu = {
+  function draftPayload(): WeekMenu {
+    return {
       ...week,
       weekStart,
       weekEnd: weekEndOf(weekStart),
@@ -220,36 +220,53 @@ export function AdminPage() {
       status: (week.publishedDates?.length ?? 0) > 0 ? 'published' : 'draft',
       updatedAt: new Date().toISOString(),
     }
-    await saveWeek(userId, payload)
-    setWeek(payload)
-    setStatus(
-      payload.publishedDates.length
-        ? 'Черновик сохранён. Уже отправленные дни у пользователя остаются.'
-        : 'Черновик сохранён. Пользователь его ещё не видит.',
-    )
+  }
+
+  async function saveDraft() {
+    if (!userId || busy) return
+    setBusy(true)
+    setStatus('Сохраняю черновик…')
+    try {
+      const payload = draftPayload()
+      await saveWeek(userId, payload)
+      setWeek(payload)
+      setStatus(
+        payload.publishedDates.length
+          ? 'Черновик сохранён. Уже отправленные дни у пользователя остаются.'
+          : 'Черновик сохранён. Пользователь его ещё не видит.',
+      )
+    } catch (e) {
+      setStatus(errorText(e, 'Не удалось сохранить черновик.'))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function sendToUser() {
-    if (!userId) return
-    if (sendDates.length === 0) {
-      setStatus('Выберите хотя бы один день для отправки.')
+    if (!userId || busy) return
+    const dates = sendDates.length
+      ? sendDates
+      : dayHasContent(week.days[selectedDay])
+        ? [selectedDay]
+        : []
+    if (dates.length === 0) {
+      setStatus('В открытом дне нет блюд. Откройте заполненный день или отметьте дни ниже.')
       return
     }
-    const payload: WeekMenu = {
-      ...week,
-      weekStart,
-      weekEnd: weekEndOf(weekStart),
-      publishedDates: week.publishedDates ?? [],
-      updatedAt: new Date().toISOString(),
-    }
-    await saveWeek(userId, payload)
-    const published = await publishWeek(userId, weekStart, sendDates)
-    if (published) {
+    const labels = [...dates].sort().map((d) => formatDayShort(d)).join(', ')
+    setBusy(true)
+    setStatus(`Отправляю: ${labels}…`)
+    try {
+      const published = await publishWeek(userId, weekStart, dates, draftPayload())
+      if (!published) {
+        setStatus('День не записался в базу. Нажмите отправку ещё раз.')
+        return
+      }
       setWeek(published)
       const name = clients.find((c) => c.id === userId)?.name ?? 'пользователю'
       const sent = new Set(week.publishedDates ?? [])
-      const updated = sendDates.filter((d) => sent.has(d))
-      const added = sendDates.filter((d) => !sent.has(d))
+      const updated = dates.filter((d) => sent.has(d))
+      const added = dates.filter((d) => !sent.has(d))
       const label = (list: string[]) =>
         [...list].sort().map((d) => formatDayShort(d)).join(', ')
       const parts = [
@@ -260,11 +277,15 @@ export function AdminPage() {
         `У ${name} ${parts.join('; ')}. Всего доступно дней: ${published.publishedDates.length}.`,
       )
       setSendDates([])
+    } catch (e) {
+      setStatus(errorText(e, 'Не удалось отправить день.'))
+    } finally {
+      setBusy(false)
     }
   }
 
   async function revokeFromUser() {
-    if (!userId) return
+    if (!userId || busy) return
     const targets = sendDates.filter((d) => week.publishedDates?.includes(d))
     if (!targets.length) {
       setStatus('Отметьте дни с галочкой — отозвать можно только уже отправленные.')
@@ -272,15 +293,26 @@ export function AdminPage() {
     }
     const labels = [...targets].sort().map((d) => formatDayShort(d)).join(', ')
     if (!window.confirm(`Убрать у пользователя дни: ${labels}?`)) return
-    const next = await unpublishDates(userId, week, targets)
-    if (!next) return
-    setWeek(next)
-    setSendDates([])
-    setStatus(
-      next.publishedDates.length
-        ? `Отозвано: ${labels}. У пользователя осталось дней: ${next.publishedDates.length}.`
-        : `Отозвано: ${labels}. Пользователь больше не видит меню этой недели.`,
-    )
+    setBusy(true)
+    setStatus(`Отзываю: ${labels}…`)
+    try {
+      const next = await unpublishDates(userId, week, targets)
+      if (!next) {
+        setStatus('Не удалось отозвать дни. Нажмите ещё раз.')
+        return
+      }
+      setWeek(next)
+      setSendDates([])
+      setStatus(
+        next.publishedDates.length
+          ? `Отозвано: ${labels}. У пользователя осталось дней: ${next.publishedDates.length}.`
+          : `Отозвано: ${labels}. Пользователь больше не видит меню этой недели.`,
+      )
+    } catch (e) {
+      setStatus(errorText(e, 'Не удалось отозвать дни.'))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function onOcrFile(file: File | null) {
@@ -575,8 +607,8 @@ export function AdminPage() {
       <section className="admin-send-dock panel stack" aria-label="Отправка меню">
         <h2>Отправка пользователю</h2>
         <p className="muted small">
-          Галочка — день уже у пользователя. Выберите его и отправьте снова,
-          чтобы заменить меню. «Отозвать» скрывает день, не стирая ваш текст.
+          Галочка — день уже у пользователя. Отметьте дни, которые нужно
+          отправить. Если ничего не отмечено, уйдёт день, открытый на экране.
         </p>
         <div className="day-strip">
           {days.map((d) => {
@@ -610,21 +642,36 @@ export function AdminPage() {
             Сбросить выбор
           </button>
         </div>
+        {status && <p className="banner">{status}</p>}
         <div className="row wrap">
-          <button type="button" className="btn secondary" onClick={() => void saveDraft()}>
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={busy}
+            onClick={() => void saveDraft()}
+          >
             Сохранить черновик
           </button>
-          <button type="button" className="btn primary" onClick={() => void sendToUser()}>
-            Отправить выбранные дни
-            {sendDates.length ? ` (${sendDates.length})` : ''}
+          <button
+            type="button"
+            className="btn primary"
+            disabled={busy}
+            onClick={() => void sendToUser()}
+          >
+            {sendDates.length
+              ? `Отправить выбранные дни (${sendDates.length})`
+              : 'Отправить открытый день'}
           </button>
-          <button type="button" className="btn danger" onClick={() => void revokeFromUser()}>
+          <button
+            type="button"
+            className="btn danger"
+            disabled={busy}
+            onClick={() => void revokeFromUser()}
+          >
             Отозвать выбранные дни
           </button>
         </div>
       </section>
-
-      {status && <p className="banner">{status}</p>}
     </div>
   )
 }

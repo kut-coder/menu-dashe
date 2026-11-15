@@ -58,6 +58,9 @@ function raise(error: { message: string } | null): void {
       'Почта не подтверждена. В Supabase отключите Confirm email для входа по паролю.',
     )
   }
+  if (/jwt expired|invalid jwt|not authenticated/i.test(message)) {
+    throw new Error('Сессия истекла. Выйдите и войдите снова, затем отправьте день ещё раз.')
+  }
   throw new Error(message)
 }
 
@@ -311,20 +314,32 @@ export async function listWeeks(
   return weeks
 }
 
+const WEEK_WRITE_MS = 25000
+const WEEK_WRITE_TIMEOUT =
+  'База долго не отвечает. Меню на экране на месте — нажмите отправку ещё раз.'
+
 export async function saveWeek(userId: string, week: WeekMenu): Promise<void> {
   const payload = normalizeWeek({
     ...week,
     updatedAt: new Date().toISOString(),
   })
+  rememberWeek(userId, payload)
   if (!isCloudConfigured || !supabase) {
     localSaveWeek(userId, payload)
     return
   }
-  const { error } = await cloudQuery(
-    supabase
+  const write = () =>
+    supabase!
       .from('weeks')
-      .upsert(weekToRow(userId, payload), { onConflict: 'user_id,week_start' }),
-  )
+      .upsert(weekToRow(userId, payload), { onConflict: 'user_id,week_start' })
+  let error: { message: string } | null
+  try {
+    ;({ error } = await withTimeout(Promise.resolve(write()), WEEK_WRITE_MS, WEEK_WRITE_TIMEOUT))
+  } catch (first) {
+    const message = first instanceof Error ? first.message : ''
+    if (!message.includes('долго не отвечает')) throw first
+    ;({ error } = await withTimeout(Promise.resolve(write()), WEEK_WRITE_MS, WEEK_WRITE_TIMEOUT))
+  }
   raise(error)
 }
 
@@ -332,16 +347,19 @@ export async function publishWeek(
   userId: string,
   weekStart: string,
   dates: string[],
+  source?: WeekMenu | null,
 ): Promise<WeekMenu | null> {
   if (!dates.length) return null
   if (!isCloudConfigured || !supabase) {
+    if (source) localSaveWeek(userId, source)
     return localPublishWeek(userId, weekStart, dates)
   }
-  const existing = await getWeek(userId, weekStart)
+  const existing = source ?? (await getWeek(userId, weekStart))
   if (!existing) return null
   const published: WeekMenu = {
     ...existing,
-    publishedDates: [...new Set([...existing.publishedDates, ...dates])].sort(),
+    weekStart,
+    publishedDates: [...new Set([...(existing.publishedDates ?? []), ...dates])].sort(),
     status: 'published',
     publishedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

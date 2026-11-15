@@ -39,16 +39,20 @@ export function meal(title: string, lines: MealLine[]): MealSlot {
   return { title, lines }
 }
 
+function cleanText(value: string): string {
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+}
+
 function asProductLine(raw: unknown): MealLine | null {
   if (!raw || typeof raw !== 'object') return null
   const obj = raw as Record<string, unknown>
   if (obj.type === 'comment') {
-    return { type: 'comment', text: String(obj.text ?? '') }
+    return { type: 'comment', text: cleanText(String(obj.text ?? '')) }
   }
   if (obj.type === 'product' || ('name' in obj && 'amount' in obj && 'unit' in obj)) {
     return {
       type: 'product',
-      name: String(obj.name ?? ''),
+      name: cleanText(String(obj.name ?? '')),
       amount: Number(obj.amount) || 0,
       unit: (obj.unit as ProductItem['unit']) || 'г',
     }
@@ -72,7 +76,7 @@ export function normalizeMeal(raw: unknown): MealSlot {
       lines?: unknown[]
       items?: unknown[]
     }
-    const title = typeof obj.title === 'string' ? obj.title : ''
+    const title = typeof obj.title === 'string' ? cleanText(obj.title) : ''
     if (Array.isArray(obj.lines)) {
       return {
         title,
