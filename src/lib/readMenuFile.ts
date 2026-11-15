@@ -1,4 +1,6 @@
+import JSZip from 'jszip'
 import type { PDFPageProxy } from 'pdfjs-dist'
+import { loadFreshChunk } from './appUpdate'
 
 const MAX_PDF_PAGES = 8
 
@@ -26,7 +28,7 @@ async function textFromImage(
   file: File,
   onProgress?: (p: number) => void,
 ): Promise<string> {
-  const Tesseract = await import('tesseract.js')
+  const Tesseract = await loadFreshChunk(() => import('tesseract.js'))
   const result = await Tesseract.recognize(file, 'rus+eng', {
     logger: (message) => {
       if (message.status === 'recognizing text' && typeof message.progress === 'number') {
@@ -95,7 +97,6 @@ export function partsFromDocumentXml(xml: string): MenuPart[] {
 }
 
 async function textFromDocx(data: ArrayBuffer): Promise<MenuPart[]> {
-  const { default: JSZip } = await import('jszip')
   let zip: Awaited<ReturnType<typeof JSZip.loadAsync>>
   try {
     zip = await JSZip.loadAsync(data)
@@ -150,7 +151,7 @@ async function ocrPdfPage(page: PDFPageProxy): Promise<string> {
   canvas.width = Math.ceil(viewport.width)
   canvas.height = Math.ceil(viewport.height)
   await page.render({ canvas, viewport }).promise
-  const Tesseract = await import('tesseract.js')
+  const Tesseract = await loadFreshChunk(() => import('tesseract.js'))
   const result = await Tesseract.recognize(canvas, 'rus+eng')
   return result.data.text.trim()
 }
@@ -159,8 +160,8 @@ async function textFromPdf(
   data: ArrayBuffer,
   onProgress?: (p: number) => void,
 ): Promise<MenuFileText> {
-  const pdfjs = await import('pdfjs-dist')
-  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+  const pdfjs = await loadFreshChunk(() => import('pdfjs-dist'))
+  const worker = await loadFreshChunk(() => import('pdfjs-dist/build/pdf.worker.min.mjs?url'))
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default
   const pdf = await pdfjs
     .getDocument({ data: new Uint8Array(data), verbosity: 0 })

@@ -2,7 +2,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
+import { reloadWhenSiteUpdates } from './lib/appUpdate'
 import { AuthProvider } from './context/AuthContext'
+
+reloadWhenSiteUpdates()
 import { useTheme } from './hooks/useTheme'
 import './index.css'
 
