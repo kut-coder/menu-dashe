@@ -10,7 +10,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Моё меню',
+        name: 'Моё меню от Нутриксю',
         short_name: 'Моё меню',
         description: 'Удобное чтение меню и список покупок',
         theme_color: '#e8f5c8',

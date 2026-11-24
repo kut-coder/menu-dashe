@@ -8,7 +8,10 @@ export function Layout() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand">Меню</div>
+        <div className="brand">
+          <span className="brand-title">Моё меню</span>
+          <span className="brand-sub">от Нутриксю</span>
+        </div>
         <div className="topbar-user">{user?.name}</div>
       </header>
 

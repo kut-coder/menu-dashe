@@ -37,7 +37,10 @@ export function LoginPage() {
           width={88}
           height={88}
         />
-        <h1>Меню</h1>
+        <h1 className="brand-heading">
+          <span className="brand-title">Моё меню</span>
+          <span className="brand-sub">от Нутриксю</span>
+        </h1>
         <p className="muted">Войдите один раз — сессия сохранится на устройстве.</p>
         <form onSubmit={onSubmit} className="stack">
           <label>
