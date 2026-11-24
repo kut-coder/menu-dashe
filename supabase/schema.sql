@@ -77,7 +77,9 @@ begin
     coalesce(new.email, ''),
     case
       when coalesce(new.email, '') ilike 'admin@%' then 'Админ'
-      else 'Даша'
+      when nullif(split_part(coalesce(new.email, ''), '@', 1), '') is not null
+        then split_part(new.email, '@', 1)
+      else 'Пользователь'
     end,
     case
       when coalesce(new.email, '') ilike 'admin@%' then 'admin'

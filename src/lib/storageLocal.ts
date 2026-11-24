@@ -84,6 +84,19 @@ export function localListUsers(): AppUser[] {
   return read<AppUser[]>(KEYS.users, [])
 }
 
+export function localUpdateUserName(userId: string, name: string): AppUser | null {
+  ensureLocalSeed()
+  const users = read<AppUser[]>(KEYS.users, [])
+  const index = users.findIndex((user) => user.id === userId)
+  if (index < 0) return null
+  const next = { ...users[index], name }
+  users[index] = next
+  write(KEYS.users, users)
+  const session = read<AppUser | null>(KEYS.session, null)
+  if (session?.id === userId) write(KEYS.session, next)
+  return next
+}
+
 export function localGetWeek(
   userId: string,
   weekStart: string,

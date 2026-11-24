@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  copyWeekDaysToUser,
   getWeek,
   listUsers,
   publishWeek,
   saveWeek,
   unpublishDates,
+  updateUserName,
 } from '../lib/api'
 import { recognizeMenuFile } from '../lib/ocr'
 import {
@@ -17,7 +19,7 @@ import {
   weekDates,
   weekEndOf,
 } from '../lib/dates'
-import { emptyDay, moveLine } from '../lib/meals'
+import { emptyDay, isDayFilled, moveLine } from '../lib/meals'
 import {
   MEAL_LABELS,
   MEAL_ORDER,
@@ -61,12 +63,17 @@ export function AdminPage() {
   const [status, setStatus] = useState('')
   const [ocrProgress, setOcrProgress] = useState<number | null>(null)
   const [sendDates, setSendDates] = useState<string[]>([])
+  const [copyDates, setCopyDates] = useState<string[]>([])
+  const [copyTargetId, setCopyTargetId] = useState('')
+  const [nameDraft, setNameDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const loadSeq = useRef(0)
   const keepImportedWeek = useRef(false)
 
   const days = useMemo(() => weekDates(weekStart), [weekStart])
   const clients = users.filter((u) => u.role === 'user')
+  const selectedClient = clients.find((u) => u.id === userId)
+  const copyTargets = clients.filter((u) => u.id !== userId)
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
@@ -97,7 +104,20 @@ export function AdminPage() {
 
   useEffect(() => {
     setSendDates((prev) => prev.filter((d) => days.includes(d)))
+    setCopyDates((prev) => prev.filter((d) => days.includes(d)))
   }, [days])
+
+  useEffect(() => {
+    setNameDraft(selectedClient?.name ?? '')
+  }, [selectedClient?.id, selectedClient?.name])
+
+  useEffect(() => {
+    setCopyTargetId((prev) => {
+      const targets = users.filter((u) => u.role === 'user' && u.id !== userId)
+      if (prev && targets.some((u) => u.id === prev)) return prev
+      return targets[0]?.id ?? ''
+    })
+  }, [userId, users])
 
   function patchMeal(
     meal: MealKey,
@@ -127,6 +147,65 @@ export function AdminPage() {
     setSendDates((prev) =>
       prev.includes(date) ? prev.filter((d) => d !== date) : [...prev, date],
     )
+  }
+
+  function toggleCopyDate(date: string) {
+    setCopyDates((prev) =>
+      prev.includes(date) ? prev.filter((d) => d !== date) : [...prev, date],
+    )
+  }
+
+  async function saveUserName() {
+    if (!userId || busy) return
+    setBusy(true)
+    setStatus('Сохраняю имя…')
+    try {
+      const profile = await updateUserName(userId, nameDraft)
+      setUsers((prev) => prev.map((u) => (u.id === profile.id ? profile : u)))
+      setNameDraft(profile.name)
+      setStatus(`Имя сохранено: ${profile.name}.`)
+    } catch (e) {
+      setStatus(errorText(e, 'Не удалось сохранить имя.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function copyDaysToOtherUser() {
+    if (!userId || busy) return
+    if (!copyTargetId) {
+      setStatus('Нужен ещё один пользователь, чтобы копировать меню.')
+      return
+    }
+    const dates = copyDates.length
+      ? copyDates
+      : days.filter((d) => isDayFilled(week.days[d]))
+    if (!dates.length) {
+      setStatus('Отметьте дни с блюдами или заполните меню перед копированием.')
+      return
+    }
+    const target = clients.find((u) => u.id === copyTargetId)
+    const labels = [...dates].sort().map((d) => formatDayShort(d)).join(', ')
+    if (
+      !window.confirm(
+        `Скопировать дни ${labels} пользователю ${target?.name ?? ''}? Уже заполненные дни у него будут заменены. Это только черновик — отправить нужно отдельно.`,
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    setStatus(`Копирую дни другому пользователю…`)
+    try {
+      await copyWeekDaysToUser(userId, copyTargetId, weekStart, dates, draftPayload())
+      setStatus(
+        `Скопировано ${target?.name ?? 'пользователю'}: ${labels}. Откройте его профиль, проверьте и отправьте дни, если нужно.`,
+      )
+      setCopyDates([])
+    } catch (e) {
+      setStatus(errorText(e, 'Не удалось скопировать меню.'))
+    } finally {
+      setBusy(false)
+    }
   }
 
   function linesOf(meal: MealKey): MealLine[] {
@@ -377,6 +456,30 @@ export function AdminPage() {
             </option>
           ))}
         </select>
+        <label>
+          Имя в приложении
+          <div className="row wrap">
+            <input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder="Например: Даша"
+              maxLength={60}
+              disabled={!userId || busy}
+            />
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={!userId || busy || nameDraft.trim() === (selectedClient?.name ?? '')}
+              onClick={() => void saveUserName()}
+            >
+              Сохранить имя
+            </button>
+          </div>
+        </label>
+        <p className="muted small">
+          Нового пользователя создаёте в Supabase. Имя «Даша» больше не
+          подставляется само — задайте его здесь.
+        </p>
       </section>
 
       <div className="week-nav">
@@ -603,6 +706,80 @@ export function AdminPage() {
           </section>
         ))}
       </div>
+
+      <section className="panel stack" aria-label="Копирование меню другому пользователю">
+        <h2>Копировать другому пользователю</h2>
+        <p className="muted small">
+          Берёт дни из открытого сейчас профиля и недели. Если дни не отмечены —
+          копируются все заполненные. У получателя это черновик, без автоотправки.
+        </p>
+        {copyTargets.length === 0 ? (
+          <p className="muted small">
+            Чтобы копировать между профилями, создайте ещё одного пользователя в
+            Supabase.
+          </p>
+        ) : (
+          <>
+            <label>
+              Кому
+              <select
+                value={copyTargetId}
+                onChange={(e) => setCopyTargetId(e.target.value)}
+                disabled={busy}
+              >
+                {copyTargets.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="day-strip">
+              {days.map((d) => (
+                <button
+                  key={`copy-${d}`}
+                  type="button"
+                  className={`day-chip ${copyDates.includes(d) ? 'active' : ''}`}
+                  onClick={() => toggleCopyDate(d)}
+                  disabled={busy}
+                >
+                  {formatDayShort(d)}
+                </button>
+              ))}
+            </div>
+            <div className="row wrap">
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={busy}
+                onClick={() =>
+                  setCopyDates(days.filter((d) => isDayFilled(week.days[d])))
+                }
+              >
+                Все заполненные
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={busy}
+                onClick={() => setCopyDates([])}
+              >
+                Сбросить выбор
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={busy || !copyTargetId}
+                onClick={() => void copyDaysToOtherUser()}
+              >
+                {copyDates.length
+                  ? `Скопировать дни (${copyDates.length})`
+                  : 'Скопировать заполненные дни'}
+              </button>
+            </div>
+          </>
+        )}
+      </section>
 
       <section className="admin-send-dock panel stack" aria-label="Отправка меню">
         <h2>Отправка пользователю</h2>

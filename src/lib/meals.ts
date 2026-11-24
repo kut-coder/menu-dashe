@@ -175,6 +175,35 @@ export function cloneDay(day: DayMeals): DayMeals {
   return copy
 }
 
+/** Копирует выбранные дни из одной недели в другую. Публикацию не трогает. */
+export function copyDaysToWeek(
+  source: WeekMenu,
+  target: WeekMenu,
+  dates: string[],
+): WeekMenu {
+  if (!dates.length) {
+    throw new Error('Выберите хотя бы один день для копирования.')
+  }
+  const days = { ...target.days }
+  let copied = 0
+  for (const date of dates) {
+    const day = source.days[date]
+    if (!isDayFilled(day)) continue
+    days[date] = cloneDay(day)
+    copied += 1
+  }
+  if (!copied) {
+    throw new Error('В выбранных днях нет блюд — копировать нечего.')
+  }
+  return normalizeWeek({
+    ...target,
+    weekStart: target.weekStart || source.weekStart,
+    weekEnd: target.weekEnd || source.weekEnd,
+    days,
+    updatedAt: new Date().toISOString(),
+  })
+}
+
 /** Копирует заполненный день в пустой; целевой день становится доступным пользователю. */
 export function copyDayInWeek(
   week: WeekMenu,

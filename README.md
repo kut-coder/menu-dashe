@@ -49,7 +49,7 @@ npm run dev
 1. Создайте проект на [supabase.com](https://supabase.com). Регион — ближайший в Европе (например Frankfurt).
 2. Authentication → Providers → Email: включите вход по почте и **выключите Confirm email**, иначе вход не пройдёт, пока письмо не подтверждено.
 3. SQL Editor: вставьте и выполните `supabase/schema.sql`.
-4. Authentication → Users: создайте `admin@…` и `dasha@…`. Почта, которая начинается с `admin@`, получает роль админа, остальные — пользователя.
+4. Authentication → Users: создайте `admin@…` и пользователей (например `dasha@…`). Почта на `admin@` даёт роль админа, остальные — обычные пользователи. Имя в приложении задаёт админ в личном кабинете (при создании в базе подставляется только часть почты до `@`, не «Даша»). Если база уже была создана раньше, один раз выполните ещё `supabase/patch-default-name.sql`.
 5. Скопируйте `.env.example` → `.env.local`. Из Project Settings → API возьмите Project URL и `anon` `public` key.
 6. В GitHub: Settings → Pages → Source = GitHub Actions; добавьте Secrets `VITE_SUPABASE_URL` и `VITE_SUPABASE_ANON_KEY`.
 7. Запушьте в `main` — workflow задеплоит сайт.

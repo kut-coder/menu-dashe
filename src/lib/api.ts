@@ -1,6 +1,7 @@
 import type { User } from '@supabase/supabase-js'
 import type { AppUser, ShoppingList, WeekMenu } from '../types'
-import { normalizeWeek } from './meals'
+import { copyDaysToWeek, normalizeWeek } from './meals'
+import { weekEndOf } from './dates'
 import { isCloudConfigured, supabase, withTimeout } from './supabase'
 import {
   DEMO_PASSWORD,
@@ -14,7 +15,14 @@ import {
   localSaveShopping,
   localSaveWeek,
   localSession,
+  localUpdateUserName,
 } from './storageLocal'
+
+function defaultNameFromEmail(email: string): string {
+  const local = email.split('@')[0]?.trim()
+  if (!local) return 'Пользователь'
+  return local
+}
 
 interface ProfileRow {
   id: string
@@ -83,7 +91,7 @@ function sessionProfile(user: User): AppUser {
   return {
     id: user.id,
     email,
-    name: admin ? 'Админ' : 'Даша',
+    name: admin ? 'Админ' : defaultNameFromEmail(email),
     role: admin ? 'admin' : 'user',
   }
 }
@@ -112,13 +120,14 @@ async function ensureProfile(user: User): Promise<AppUser> {
   }
 
   const email = user.email ?? ''
+  const admin = email.toLowerCase().startsWith('admin@')
   const created = await db
     .from('profiles')
     .insert({
       id: user.id,
       email,
-      name: email.toLowerCase().startsWith('admin') ? 'Админ' : 'Даша',
-      role: email.toLowerCase().startsWith('admin') ? 'admin' : 'user',
+      name: admin ? 'Админ' : defaultNameFromEmail(email),
+      role: admin ? 'admin' : 'user',
     })
     .select('id, name, email, role')
     .single()
@@ -126,6 +135,64 @@ async function ensureProfile(user: User): Promise<AppUser> {
   const profile = profileFromRow(created.data as ProfileRow)
   cacheProfile(profile)
   return profile
+}
+
+export async function updateUserName(
+  userId: string,
+  name: string,
+): Promise<AppUser> {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Укажите имя пользователя.')
+  if (trimmed.length > 60) throw new Error('Имя слишком длинное.')
+  if (!isCloudConfigured || !supabase) {
+    const local = localUpdateUserName(userId, trimmed)
+    if (!local) throw new Error('Пользователь не найден.')
+    return local
+  }
+  const { data, error } = await cloudQuery(
+    supabase
+      .from('profiles')
+      .update({ name: trimmed })
+      .eq('id', userId)
+      .select('id, name, email, role')
+      .single(),
+  )
+  raise(error)
+  const profile = profileFromRow(data as ProfileRow)
+  cacheProfile(profile)
+  return profile
+}
+
+/** Копирует дни меню другому пользователю. Не публикует — только черновик. */
+export async function copyWeekDaysToUser(
+  sourceUserId: string,
+  targetUserId: string,
+  weekStart: string,
+  dates: string[],
+  sourceWeek?: WeekMenu | null,
+): Promise<WeekMenu> {
+  if (sourceUserId === targetUserId) {
+    throw new Error('Выберите другого пользователя.')
+  }
+  if (!dates.length) {
+    throw new Error('Выберите хотя бы один день для копирования.')
+  }
+  const source = sourceWeek ?? (await getWeek(sourceUserId, weekStart))
+  if (!source) {
+    throw new Error('У исходного пользователя нет меню на эту неделю.')
+  }
+  const existing = (await getWeek(targetUserId, weekStart)) ?? {
+    weekStart,
+    weekEnd: weekEndOf(weekStart),
+    status: 'draft' as const,
+    publishedAt: null,
+    publishedDates: [] as string[],
+    days: {},
+    updatedAt: new Date().toISOString(),
+  }
+  const next = copyDaysToWeek(source, existing, dates)
+  await saveWeek(targetUserId, next)
+  return next
 }
 
 function weekFromRow(row: WeekRow): WeekMenu {
