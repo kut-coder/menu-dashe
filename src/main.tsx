@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { reloadWhenSiteUpdates } from './lib/appUpdate'
+import { watchAppViewport } from './lib/viewport'
 import { AuthProvider } from './context/AuthContext'
-
-reloadWhenSiteUpdates()
 import { useTheme } from './hooks/useTheme'
 import './index.css'
+
+reloadWhenSiteUpdates()
+watchAppViewport()
 
 function Root() {
   useTheme()
