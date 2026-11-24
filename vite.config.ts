@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Меню Даше',
-        short_name: 'Меню',
+        name: 'Моё меню',
+        short_name: 'Моё меню',
         description: 'Удобное чтение меню и список покупок',
         theme_color: '#e8f5c8',
         background_color: '#f3f8e8',
