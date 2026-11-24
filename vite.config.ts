@@ -16,9 +16,12 @@ export default defineConfig({
         theme_color: '#e8f5c8',
         background_color: '#f3f8e8',
         display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
         orientation: 'portrait',
         start_url: process.env.VITE_BASE || '/',
+        scope: process.env.VITE_BASE || '/',
         lang: 'ru',
+        prefer_related_applications: false,
         icons: [
           {
             src: 'icon-192.png',
